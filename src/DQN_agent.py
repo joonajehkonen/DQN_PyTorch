@@ -15,12 +15,16 @@ import wandb
 #device = torch.device("cuda:0")
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
+"""
+Implementation of the DeepQNetwork (DQN)
+"""
 class DQN(nn.Module):
-    def __init__(self, frame_height, frame_width, output_dim):
+    def __init__(self, in_channels, output_dim):
         
-        super(DQN).__init__()
+        super().__init__()
 
-        # TODO: Neural network
+        input_dim = in_channels[0]
+
         """
         Model architecture:
         We have three convolutional layers following two fully connected layers and a single output for each valid action.
@@ -33,19 +37,36 @@ class DQN(nn.Module):
         The final hidden layer is fully-connected and consists of 512 rectifier units. 
         The output layer is a fully-connected linear layer with a single output for each valid action. 
         The number of valid actions varied between 4 and 18 on the games we considered.
+
+        I use here PyTorch sequential module, which simplifies the forward function quite a bit.
         """
 
-        self.conv_layer1 = nn.Conv2d((frame_height, frame_width), 32, kernel_size=8, stride=4)
-        nn.ReLU()
-        self.conv_layer2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
-        nn.ReLU()
-        self.conv_layer3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
-        nn.ReLU()
-        self.linear_layer1 = nn.Linear(64, 512)
-        nn.ReLU()
-        self.output_layer = nn.Linear(512, output_dim)
-    
-    def forward(self):
+        dqn = nn.Sequential(
+            nn.Conv2d(input_dim, 32, kernel_size=8, stride=4),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1),
+            nn.ReLU(),
+
+            nn.Flatten(),
+            nn.Linear(64, 512),
+            nn.ReLU(),
+            nn.Linear(512, output_dim)
+        )
+
+    def forward(self, x):
+        x = x.to(device)
+        return self.dqn(x)
+        
+
+"""
+Implementation of the agent
+"""
+class Agent:
+    def __init__(self):
         pass
+    
+    
 
     

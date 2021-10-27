@@ -14,8 +14,13 @@ from replay_buffer import ReplayBuffer
 
 EPISODES = 10
 REPLAY_BUFFER_SIZE = 1000000
-T = 10
+TIME_STEPS = 10
 BATCH_SIZE = 32
+GAMMA = 0.99
+K_SKIP = 4
+LR = 0.00025
+INIT_EPSILON = 1
+FINAL_EPSILON = 0.05
 
 # Initialize replay memory D to capacity N
 replay_buffer = ReplayBuffer(REPLAY_BUFFER_SIZE)
@@ -29,7 +34,7 @@ for _ in EPISODES:
 
     # Initialize sequence s_1 = {x1} and preprocessed sequence phi_1 = phi(s_1)
 
-    for _ in T:
+    for _ in TIME_STEPS:
         pass
         # With probability E select a random action a_t
         # otherwise select a_t = argmax_Q(phi(s_t), a; theta)
