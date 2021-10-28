@@ -1,4 +1,4 @@
-name: deeplearning
+name: dqnheadless
 channels:
 - conda-forge
 - defaults
@@ -18,3 +18,5 @@ dependencies:
   - gym[atari]
   - numpy
   - pandas
+  - opencv-python
+  - pyvirtualdisplay

@@ -4,12 +4,16 @@
 #CartPole-v1 https://gym.openai.com/envs/CartPole-v1/
 
 import gym
-
+import numpy as np
+from gym import wrappers
 from replay_buffer import ReplayBuffer
+#from DQN_agent import DQN
+import utils
+import pyvirtualdisplay
 
 
 
-
+#np.set_printoptions(threshold=np.inf) # 1000 is default
 
 
 EPISODES = 10
@@ -21,35 +25,35 @@ K_SKIP = 4
 LR = 0.00025
 INIT_EPSILON = 1
 FINAL_EPSILON = 0.05
+WIDTH = 84
+HEIGHT = 84
 
-# Initialize replay memory D to capacity N
-replay_buffer = ReplayBuffer(REPLAY_BUFFER_SIZE)
+pyvirtualdisplay.Display(visible=0, size=(600, 400)).start() # We need this to emulate display on headless server
 
-# Initialize action-value function Q with random weights h
 
-# Initialize target action-value function Q^ with weights h2 5 h
 
-for _ in EPISODES:
-    pass
 
+
+env = gym.make('CartPole-v1')
+n_actions = env.action_space.n
+# For saving the video no render
+#env = wrappers.Monitor(env, video_callable=False ,force=True)
+for i_episode in range(1):
+    
     # Initialize sequence s_1 = {x1} and preprocessed sequence phi_1 = phi(s_1)
+    next_state = env.reset() 
+    state = env.render(mode='rgb_array') ## Gets RGB array of shape (x,y,3)
+    state = utils.preprocess_frame(state, WIDTH, HEIGHT)
 
-    for _ in TIME_STEPS:
-        pass
-        # With probability E select a random action a_t
-        # otherwise select a_t = argmax_Q(phi(s_t), a; theta)
+
+    for t in range(1):
         
-        # Execute action a_t in emulator and observe reward r_t and image x_t+1
-        
-        # Set s_t+1 = s_t, a_t, x_t+1 and preprocess phi_t+1 = phi(s_t+1)
+        print(state)
+        action = env.action_space.sample()
+        next_state, reward, done, info = env.step(action)
+        if done:
+            print("Episode finished after {} timesteps".format(t+1))
+            break
+env.close()
 
-        # Store transition (phi_t, a_t, r_t, phi_t+1) in D
 
-        # Sample random minibatch of transitions (phi_j, a_j, r_j, phi_j+1) from D
-
-        # Set y_j = r_j                                             if episode terminates at step j + 1
-        #     y_j = r_j + gamma * max_a' Q_hat(phi_j+1,a'; theta⁻)  otherwise
-
-        # Perform a gradient descent step on (y_j - Q(phi_j,a_j; theta))² with respect to the network parameters theta
-
-        # Every C steps reset Q_theta = Q
