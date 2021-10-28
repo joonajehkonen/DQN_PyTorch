@@ -15,5 +15,6 @@ dependencies:
   - scipy
   - tqdm
   - gym
+  - gym[atari]
   - numpy
   - pandas

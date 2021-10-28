@@ -4,6 +4,7 @@
 
 import numpy as np
 import random
+from queue import Queue
 
 
 
@@ -11,8 +12,7 @@ class ReplayBuffer:
     def __init__(self, size):
         self.size = size
 
-        # TODO: Replay buffer
-        replay_buffer = np.zeros(self.size)
+        replay_buffer = Queue(maxsize=size)
 
         # TODO: We need way to init, store and sample according to the DQN algorithm on page 7
         # TODO: The memory is a list of tuples (phi_t, a_t, r_t, phi_t+1)
@@ -29,4 +29,4 @@ class ReplayBuffer:
         '''
         def store(self, state, action, reward, next_state):
             transition = (state, action, reward, next_state)
-            self.replay_buffer.append(transition)
+            self.replay_buffer.put(transition)
