@@ -8,32 +8,33 @@ import torch
 import torch.nn as nn
 
 import numpy as np
-import tqdm
+from tqdm import tqdm
 import wandb
 import random
+import matplotlib.pyplot as plt
 
 from replay_memory import ReplayMemory
-import utils
 
-#device = torch.device("cuda:0")
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+#device = 'cuda' if torch.cuda.is_available() else 'cpu'
+"""
+np.random.seed(seed_value) # cpu vars
+torch.manual_seed(seed_value) # cpu  vars
+if use_cuda: torch.cuda.manual_seed_all(seed_value)
+"""
 
 """
-Implementation of the DeepQNetwork (DQN)
+Implementation of the Deep Q Network (DQN)
 """
 class DQN(nn.Module):
-    def __init__(self, in_channels, output_dim):
-        
+    def __init__(self, input_shape, num_actions):
         super().__init__()
-
-        input_dim = in_channels[0]
 
         """
         Model architecture:
         We have three convolutional layers following two fully connected layers and a single output for each valid action.
         Each hidden layer is followed by a rectifier nonlinearity max(0,x) which is ReLU().
 
-        The input to the neural network consists of an 84 x 84 x 4 image produced by the preprocessing map phi. 
+        The input to the neural network consists of an 4 x 84 x 84 image produced by the preprocessing map phi. 
         The first hidden layer convolves 32 filters of 8 x 8 with stride 4 with the input image and applies a rectifier nonlinearity ReLU.
         The second hidden layer convolves 64 filters of 4 x 4 with stride 2, again followed by a rectifier nonlinearity.
         This is followed by a third convolutional layer that convolves 64 filters of 3 x 3 with stride 1 followed by a rectifier. 
@@ -41,65 +42,62 @@ class DQN(nn.Module):
         The output layer is a fully-connected linear layer with a single output for each valid action. 
         The number of valid actions varied between 4 and 18 on the games we considered.
 
-        I use here PyTorch sequential module, which simplifies the forward function quite a bit.
+        I use here PyTorch sequential module, which simplifies the architecture implementation quite a bit.
         """
 
-        dqn = nn.Sequential(
-            nn.Conv2d(input_dim, 32, kernel_size=8, stride=4),
+        n_input_channels = input_shape[0]
+
+        self.cnn = nn.Sequential(
+            nn.Conv2d(n_input_channels, 32, kernel_size=8, stride=4, padding=0),
             nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=4, stride=2),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=0),
             nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, stride=1),
-            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0),
+            nn.ReLU()
+        )
 
-            nn.Flatten(),
-            nn.Linear(64, 512),
-            nn.ReLU(),
-            nn.Linear(512, output_dim)
-        ).to(device)
+        self.linear = nn.Sequential(
+            nn.Linear(7 * 7 * 64, 512),
+            nn.ReLU()
+        )
+        self.final_fc = nn.Linear(512, num_actions)
+
+    def forward(self, observations: torch.Tensor) -> (torch.Tensor):
+        x = self.cnn(observations)
+        x = x.view(x.size(0), -1)
+        x = self.linear(x)
+        x = self.final_fc(x)
+        return x
 
 
-    def forward(self, x):
-        x = x.to(device)
-        return self.dqn(x)
-
-
-    def init_weights(m):
-        if isinstance(m, nn.Conv2d):
-            #m.weight.data.normal_(0.0, 0.02)
-            torch.nn.init.xavier_uniform(m.weight)
-            m.bias.data.fill_(0.01)
-        elif isinstance(m, nn.Linear):
-            #m.weight.data.normal_(1.0, 0.02)
-            #m.bias.data.fill_(0)
-            torch.nn.init.xavier_uniform(m.weight)
-            m.bias.data.fill_(0.01)
-        
-
-"""
-EPISODES = 10
-REPLAY_MEMORY_SIZE = 1000000
-TIME_STEPS = 10
-BATCH_SIZE = 32
-GAMMA = 0.99
-K_SKIP = 4
-LR = 0.00025
-INIT_EPSILON = 1
-FINAL_EPSILON = 0.05
-WIDTH = 84
-HEIGHT = 84
-"""
 
 """
 Implementation of the agent (Algorithm 1).
 """
 class DQNAgent:
-    def __init__(self, episodes, time_steps, n_actions, input_dim, epsilon=1.0, final_epsilon=0.05, memory_size=1000000, 
+    def __init__(self, episodes, time_steps, n_actions, input_shape, policy_name, epsilon=1.0, final_epsilon=0.05, memory_size=1000000, 
                  gamma=0.99, lr=0.00025, batch_size=32):
-        self.dqn = DQN(input_dim, n_actions) 
-        self.target_dqn = DQN(input_dim, n_actions) 
-        self.replay_memory = ReplayMemory(memory_size) # Initialize replay memory D to capacity N
-        self.action_space = [i for i in range(n_actions)] # possible_actions = [list(range(1, (k + 1))) for k in action_space.nvec] https://stackoverflow.com/questions/64588828/openai-gym-walk-through-all-possible-actions-in-an-action-space
+
+        # Initialize action-value function Q with random weights h
+        self.dqn = DQN(input_shape, n_actions).type(torch.cuda.FloatTensor)
+        self.target_dqn = DQN(input_shape, n_actions).type(torch.cuda.FloatTensor)
+        
+        # Initialize target action-value function Q^ with weights h⁻ = h
+        self.target_dqn.load_state_dict(self.dqn.state_dict())
+
+        # Paper uses RMSprop, we use PyTorch implementation of it
+        self.optimizer = torch.optim.RMSprop(params=self.dqn.parameters(), lr=lr, momentum=0.95)
+        #self.optimizer = torch.optim.Adam(params=self.dqn.parameters(), lr=lr)
+
+        # Paper uses MSE as loss
+        # NOTE: in MSE the order of substraction doesn't matter. Paper uses (target - prediction)². Pytorch uses (prediction - target)²
+        self.loss_func = nn.MSELoss()
+
+        # Initialize replay memory D to capacity N
+        self.replay_memory = ReplayMemory(memory_size)
+        self.memory_size = memory_size
+        self.policy_name = policy_name
+        self.action_space = [i for i in range(n_actions)]
         self.episodes = episodes
         self.time_steps = time_steps
         self.total_reward = 0
@@ -108,156 +106,172 @@ class DQNAgent:
         self.gamma = gamma
         self.lr = lr
         self.batch_size = batch_size
-        self.frame_skip = 4
-        self.update_freq = 10000
-        self.width = 84
-        self.height = 84
-        #elf.optimizer = torch.optim.Adam(theta,lr)
-        #self.loss = nn.MSELoss(reduction=mean)
-        
-        pass
+        self.update_freq = 1500
+        self.episodic_rewards = []
+        self.mean_episodic_rewards = []
+        self.losses = []
+        self.episodic_losses = []
+        self.iter_no = 0
+
 
     """
     Policy for choosing actions.
-    Exploration / eploitation is handled with epsilon greedy and
+    Exploration / exploitation is handled with epsilon greedy and
     policy estimation is done with Deep Q Network.
     """
-    def policy(self, state, actions):
-        p = np.random.random()
-
-        if p < self.epsilon:
-            action = random.choice(actions)
+    def policy(self, state):
+        if np.random.rand() < self.epsilon:
+            action = random.choice(self.action_space)
         else:
-            # TODO: state into torch tensor
-            action = torch.argmax(self.dqn.forward(state))
-            #action = torch.argmax(actions)
+            state = torch.from_numpy(np.asarray(state)).unsqueeze(0).cuda() # LazyFrame to torch tensor
+            action = torch.argmax(self.dqn(state)).cpu().item()
         
         return action
 
 
-    # TODO: Frame skipping every 4th frame
     def train(self, env):
-        # Initialize action-value function Q with random weights h
-        self.dqn.apply(self.dqn.init_weights)
-        # Initialize target action-value function Q^ with weights h⁻ = h
-        self.target_dqn.load_state_dict(self.dqn.state_dict())
+        
+        # Wandb config for logging
+        config = {
+            "Learning rate": self.lr,
+            "Episodes": self.episodes,
+            "Batch size": self.batch_size,
+            "Timesteps": self.time_steps,
+            "Update freq.": self.update_freq,
+            "Replay memory size": self.memory_size,
+            "Gamma": self.gamma
+        }
 
-        for i_episode in range(self.episodes):
-
+        run = wandb.init(
+            project="PyTorch_DQN", entity="joonaj",
+            config = config,
+            monitor_gym=True,
+            save_code=True
+        )
+        
+    
+        for i_episode in tqdm(range(self.episodes)):
+            self.total_reward = 0
             # Initialize sequence s_1 = {x1} and preprocessed sequence phi_1 = phi(s_1)
-            env.reset() 
-            state = env.render(mode='rgb_array') ## Gets RGB array of shape (x,y,3)
-            state = utils.preprocess_frame(state, self.width, self.height)
-
+            state = env.reset()
 
             for t in range(self.time_steps):
                 # With probability E select a random action a_t
                 # otherwise select a_t = argmax_Q(phi(s_t), a; theta)
-                action = self.policy(state, self.action_space)
+                action = self.policy(state)
 
                 # Execute action a_t in emulator and observe reward r_t and image x_t+1
-                next_state, reward, done, _ = env.step(action)
-
-                # TODO: is necessary? Reward between -1 and 1
-                reward = max(-1.0, min(reward, 1.0))
-
-                self.total_reward += reward
-
                 # Set s_t+1 = s_t, a_t, x_t+1 and preprocess phi_t+1 = phi(s_t+1)
-                next_state = utils.preprocess_frame(next_state, self.width, self.height)
+                next_state, reward, done, _ = env.step(action)
                 
+                # Clip reward between [-1, 1], not using torch clamp for np arrays
+                self.total_reward += reward
+                reward = np.clip(reward, -1.0, 1.0)
+
                 # Store transition (phi_t, a_t, r_t, phi_t+1) in D
                 if self.replay_memory.is_full():
                     self.replay_memory.popleft() # Remove last item on queue
                     self.replay_memory.save(state, action, reward, next_state, done)
-                
-                state = next_state
-
-
-
-                """
-                Training of DQN
-                """
-
-                # TODO: Go here when enough samples in memory
-                # TODO: consider the architecture of replay buffer
-
-                # Sample random minibatch of transitions (phi_j, a_j, r_j, phi_j+1) from D
-                next_state_batch, action_batch, reward_batch, state_batch, done_batch = self.replay_memory.sample(self.batch_size)
-                
-                next_state_batch = torch.from_numpy(next_state_batch) # NumPy array to torch tensor for NN
-                state_batch = torch.from_numpy(state_batch) # NumPy array to torch tensor for NN
-                
-                # Set y_j = r_j                                             if episode terminates at step j + 1
-                #     y_j = r_j + gamma * max_a' Q_hat(phi_j+1,a'; theta⁻)  otherwise
-
-                if done:
-                    #total_reward = reward_batch
-                    print("Episode finished after {} timesteps".format(t+1))
-                    break
                 else:
-                    next_state, reward, done, _ = self.target_dqn(next_state_batch).detach()
-                    #forward(next_state_batch).detach()
-                    target = reward_batch + reward * self.gamma
-
-                # Perform a gradient descent step on (y_j - Q(phi_j,a_j; theta))² with respect to the network parameters theta
-                next_state, reward, done, _ = self.dqn(state_batch)
-                #forward(state_batch)
-                loss = (target - reward) ** 2
-                #self.optimizer.zero_grad()
-
-                #loss.backward()
-
-                #self.optimizer.step()
-                #self.optimizer.zero_grad()
-
-                # Every C steps reset Q_theta = Q
-                if t % self.update_freq == 0:
-                    self.target_dqn.load_state_dict(self.dqn.state_dict())
-            
+                    self.replay_memory.save(state, action, reward, next_state, done)
                 
-    
+                # Save current state for next iteration
+                state = next_state
+                self.iter_no += 1
 
+                """
+                Training of DQN when enough samples in memory (~50000 frames ==> 50000 / 4 = 12500 ==> 1250 in our smaller case)
+                """
+                if self.iter_no >= 1250:
 
-    
+                    # The behaviour policy during training was e-greedy with e annealed linearly from 1.0 to 0.1 over the first million frames, 
+                    # and fixed at 0.1 thereafter
+                    # NOTE: Here we are not doing million frames but a porportion of it 4500
+                    if self.epsilon > 0.05:
+                        self.epsilon = self.epsilon - (0.95 / 6500)
 
+                    # Sample random minibatch of transitions (phi_j, a_j, r_j, phi_j+1) from D
+                    state_batch, action_batch, reward_batch, next_state_batch, done_batch = self.replay_memory.sample(self.batch_size)
+                    
+                    next_state_batch = torch.from_numpy(next_state_batch).type(torch.cuda.FloatTensor) # NumPy array to torch tensor for NN
+                    state_batch = torch.from_numpy(state_batch).type(torch.cuda.FloatTensor)# NumPy array to torch tensor for NN
+                    reward_batch = torch.from_numpy(reward_batch).cuda() # NumPy array to torch tensor for NN and for gpu
+                    action_batch = torch.from_numpy(action_batch).long().cuda() # NumPy array to torch tensor for NN and for gpu.
+                    done_batch = torch.from_numpy(done_batch).cuda() # NumPy array to torch tensor for NN and for gpu
+
+                    # Get current state Q values (predictions) (Tensor shape of [32] ==> This is achieved by getting 2D inout to gather and squeezing it to 1D after)
+                    current_q = self.dqn(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(1)
+                    # Set y_j = r_j                                             if episode terminates at step j + 1 NOTE: we can check this with (not) done mask
+                    #     y_j = r_j + gamma * max_a' Q_hat(phi_j+1,a'; theta⁻)  otherwise
+                    target_max_q = self.target_dqn(next_state_batch).detach().max(1)[0]
+                    target = reward_batch + target_max_q * self.gamma * (1 - done_batch) 
+
+                    # Perform a gradient descent step on (y_j - Q(phi_j,a_j; theta))² with respect to the network parameters theta
+                    loss = self.loss_func(current_q, target)
+                    
+                    # Add loss to array of losses. NOTE: loss is a tensor
+                    self.losses.append(loss) 
+
+                    # Clip loss between [-1,1], we can use torch.clamp on torch tensors
+                    loss = loss.clamp(-1,1)
+
+                    # Add loss to array of losses. NOTE: loss is a tensor
+                    #self.losses.append(loss) # Loss is very low, but reward increases
+
+                    # Standard PyTorch update
+                    self.optimizer.zero_grad()
+                    # self.losses.append(loss) NOT WORKING HERE
+                    loss.backward()
+                   #  self.losses.append(loss) NOT WORKING HERE
+                    self.optimizer.step()
+
+                    #self.losses.append(loss) NOT WORKING HERE
+
+                    # Every C steps reset Q_theta = Q
+                    if i_episode % self.update_freq == 0 and t == 0:
+                        print("Target network updated!")
+                        self.target_dqn.load_state_dict(self.dqn.state_dict())
+                    
+                if done:
+                    self.episodic_rewards.append(self.total_reward)
+                    break
+            
+            if i_episode % 100 == 0 and self.iter_no  > 1250:
+                print("Episode: {}".format(i_episode))
+                print("Total Mean Episodic reward: {0:.4f}".format(sum(self.episodic_rewards) / len(self.episodic_rewards)))
+                print("Total MSE: {0:.4f}".format(torch.mean(torch.stack(self.losses), dim=0)))
+                # sum(self.losses) / len(self.losses)
+                self.mean_episodic_rewards.append(sum(self.episodic_rewards) / len(self.episodic_rewards))
+                self.episodic_losses.append(torch.mean(torch.stack(self.losses), dim=0))
+                #self.episodic_losses.append(sum(self.losses) / len(self.losses))
+            elif i_episode % 100 == 0 and self.iter_no <= 1250:
+                print("Episode: {}".format(i_episode))
+
+        
+
+        # Plot logging to wandb
+        episodic_rewards_np = np.array(self.mean_episodic_rewards)
+        plt.plot(np.arange(len(episodic_rewards_np)), episodic_rewards_np, ls="solid")
+        plt.ylabel("Episodic reward")
+        plt.xlabel("Every 100th episode")
+        wandb.log({"chart": plt})
+
+        # Turn list of tensors to numpy array with scalars for plotting
+        total_loss = []
+        for loss in self.episodic_losses:
+            total_loss.append(loss.cpu().item())
+
+        total_loss_np = np.array(total_loss)
+        plt.plot(np.arange(len(total_loss_np)), total_loss_np, ls="solid")
+        plt.ylabel("Loss")
+        plt.xlabel("Every 100th episode")
+        wandb.log({"chart": plt})
+        
+        # Save trained model
+        torch.save(self.dqn.state_dict(), self.policy_name)
+        run.finish()
+                
+            
     def evaluate():
         pass
     
-    
-
-
-"""
-
-# Initialize replay memory D to capacity N
-replay_memory = ReplayMemory(REPLAY_MEMORY_SIZE)
-
-# Initialize action-value function Q with random weights h
-
-# Initialize target action-value function Q^ with weights h⁻ = h
-
-for _ in EPISODES:
-    pass
-
-    # Initialize sequence s_1 = {x1} and preprocessed sequence phi_1 = phi(s_1)
-
-    for _ in TIME_STEPS:
-        pass
-        # With probability E select a random action a_t
-        # otherwise select a_t = argmax_Q(phi(s_t), a; theta)
-        
-        # Execute action a_t in emulator and observe reward r_t and image x_t+1
-        
-        # Set s_t+1 = s_t, a_t, x_t+1 and preprocess phi_t+1 = phi(s_t+1)
-
-        # Store transition (phi_t, a_t, r_t, phi_t+1) in D
-
-        # Sample random minibatch of transitions (phi_j, a_j, r_j, phi_j+1) from D
-
-        # Set y_j = r_j                                             if episode terminates at step j + 1
-        #     y_j = r_j + gamma * max_a' Q_hat(phi_j+1,a'; theta⁻)  otherwise
-
-        # Perform a gradient descent step on (y_j - Q(phi_j,a_j; theta))² with respect to the network parameters theta
-
-        # Every C steps reset Q_theta = Q
-"""

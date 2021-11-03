@@ -4,56 +4,48 @@
 #CartPole-v1 https://gym.openai.com/envs/CartPole-v1/
 
 import gym
-import numpy as np
 from gym import wrappers
 from DQN_agent import DQNAgent
-from replay_memory import ReplayMemory
-#from DQN_agent import DQN
 import utils
 import pyvirtualdisplay
 
 
 
-#np.set_printoptions(threshold=np.inf) # 1000 is default
-
-
-EPISODES = 10
-#REPLAY_MEMORY_SIZE = 1000000
-TIME_STEPS = 10
-#BATCH_SIZE = 32
-#GAMMA = 0.99
-#K_SKIP = 4
-#LR = 0.00025
-#INIT_EPSILON = 1
-#FINAL_EPSILON = 0.05
-WIDTH = 84
-HEIGHT = 84
-
+EPISODES = 25000#10000#100000
+TIME_STEPS = 300
 
 pyvirtualdisplay.Display(visible=0, size=(600, 400)).start() # We need this to emulate display on headless server
 
-
-
-
-
-env = gym.make('CartPole-v1')
-n_actions = env.action_space.n
-TRAIN = True
-policy_name = 'policies/dqn_{EPISODES}'
 # For saving the video no render
 #env = wrappers.Monitor(env, video_callable=False ,force=True)
 
+env = gym.make('CartPole-v1')
+env = utils.MaxAndSkipEnv(env) # On cartpole we can use this extended wrapper for image preprocessing
+env = wrappers.FrameStack(env, 4)
+#env = gym.make('Pong-v4')
+# NOTE: OpenAI gym has a atari_preprocessing wrapper which implements the whole image preprocessing
 """
-episodes, time_steps, n_actions, input_dim, output_dim, epsilon=1.0, final_epsilon=0.05, buffer_memory=1000000, 
-                 gamma=0.99, lr=0.00025, batch_size=32):
+env = wrappers.AtariPreprocessing(
+    env,
+    noop_max=30,
+    frame_skip=4,
+    screen_size=84,
+    terminal_on_life_loss=False,
+    grayscale_obs=True,
+    grayscale_newaxis=False,
+    scale_obs=True #False
+)
 """
-dqn_agent = DQNAgent(EPISODES, TIME_STEPS, n_actions, (WIDTH, HEIGHT, 3), n_actions)
+# Get current env action space size (number of actions)
+n_actions = env.action_space.n
+TRAIN = True
+policy_name = '/media/data1/joojeh/DQN_PyTorch/policies/dqn_{}.pth'.format(EPISODES)
+
+dqn_agent = DQNAgent(EPISODES, TIME_STEPS, n_actions, (4, 84, 84), policy_name)
 
 if TRAIN:
-    dqn_agent.train()
+    dqn_agent.train(env)
 else:
     dqn_agent.evaluate()
 
 env.close()
-
-

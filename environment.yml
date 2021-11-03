@@ -9,14 +9,12 @@ dependencies:
 - pip:
   - torchvision
   - matplotlib
-  - seaborn
+  - plotly
   - torchviz
   - wandb
-  - scipy
   - tqdm
   - gym
   - gym[atari]
   - numpy
-  - pandas
   - opencv-python
   - pyvirtualdisplay
