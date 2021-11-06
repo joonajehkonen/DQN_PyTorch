@@ -37,7 +37,19 @@ class ReplayMemory:
         Check if deque is full.
     '''
     def is_full(self):
-        return True if self.replay_memory.count == self.size else False
+        return True if self.length() == self.size else False
+
+    '''
+        Check deque length
+    '''
+    def length(self):
+        return len(self.replay_memory)
+
+    '''
+    Pop oldest item from deque 
+    '''
+    def popleft(self):
+        self.replay_memory.popleft()
 
 
     '''
@@ -45,11 +57,11 @@ class ReplayMemory:
         Returns the batch arrays.
     '''
     def tuples_to_batches(self, transitions, batch_size):
-        state_batch = np.zeros((batch_size, *(4,84,84)), dtype=np.float32)
-        action_batch = np.zeros(batch_size, dtype=np.int32)
+        state_batch = np.zeros((batch_size, *(4,84,84)), dtype=np.uint8)
+        action_batch = np.zeros(batch_size, dtype=np.uint8)
         reward_batch = np.zeros(batch_size, dtype=np.float32)
-        next_state_batch = np.zeros((batch_size, *(4,84,84)), dtype=np.float32)
-        done_batch = np.zeros(batch_size, dtype=np.float32)
+        next_state_batch = np.zeros((batch_size, *(4,84,84)), dtype=np.uint8)
+        done_batch = np.zeros(batch_size, dtype=np.uint8)
 
         for idx, transition in enumerate(transitions):
             state_batch[idx] = transition[0]
@@ -60,5 +72,4 @@ class ReplayMemory:
 
         return state_batch, action_batch, reward_batch, next_state_batch, done_batch
 
-    def length(self):
-        return len(self.replay_memory)
+    

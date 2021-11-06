@@ -14,7 +14,7 @@ dependencies:
   - wandb
   - tqdm
   - gym
-  - gym[atari]
+  - gym[atari, accept-rom-license]
   - numpy
   - opencv-python
   - pyvirtualdisplay

@@ -15,13 +15,6 @@ import matplotlib.pyplot as plt
 
 from replay_memory import ReplayMemory
 
-#device = 'cuda' if torch.cuda.is_available() else 'cpu'
-"""
-np.random.seed(seed_value) # cpu vars
-torch.manual_seed(seed_value) # cpu  vars
-if use_cuda: torch.cuda.manual_seed_all(seed_value)
-"""
-
 """
 Implementation of the Deep Q Network (DQN)
 """
@@ -75,19 +68,23 @@ class DQN(nn.Module):
 Implementation of the agent (Algorithm 1).
 """
 class DQNAgent:
-    def __init__(self, episodes, time_steps, n_actions, input_shape, policy_name, epsilon=1.0, final_epsilon=0.05, memory_size=1000000, 
+    def __init__(self, episodes, n_actions, input_shape, policy_name, env_name, epsilon=1.0, final_epsilon=0.05, memory_size=10000, 
                  gamma=0.99, lr=0.00025, batch_size=32):
 
         # Initialize action-value function Q with random weights h
         self.dqn = DQN(input_shape, n_actions).type(torch.cuda.FloatTensor)
         self.target_dqn = DQN(input_shape, n_actions).type(torch.cuda.FloatTensor)
         
-        # Initialize target action-value function Q^ with weights h⁻ = h
-        self.target_dqn.load_state_dict(self.dqn.state_dict())
+        # NOTE: This is done on training loop when episode is 0 ==> Initialize target action-value function Q^ with weights h⁻ = h
 
         # Paper uses RMSprop, we use PyTorch implementation of it
-        self.optimizer = torch.optim.RMSprop(params=self.dqn.parameters(), lr=lr, momentum=0.95)
-        #self.optimizer = torch.optim.Adam(params=self.dqn.parameters(), lr=lr)
+        # NOTE: RMSprop on Atari Pong and Adam on CartPole
+        if (env_name == 'CartPole-v1'):
+            self.optimizer = torch.optim.Adam(params=self.dqn.parameters(), lr=lr)
+            self.decay_over_frames = 6500
+        else:
+            self.optimizer = torch.optim.RMSprop(params=self.dqn.parameters(), lr=lr, alpha=0.95, weight_decay=0, eps=0.01,  momentum=0, centered=True)
+            self.decay_over_frames = 20000
 
         # Paper uses MSE as loss
         # NOTE: in MSE the order of substraction doesn't matter. Paper uses (target - prediction)². Pytorch uses (prediction - target)²
@@ -99,19 +96,19 @@ class DQNAgent:
         self.policy_name = policy_name
         self.action_space = [i for i in range(n_actions)]
         self.episodes = episodes
-        self.time_steps = time_steps
         self.total_reward = 0
         self.epsilon = epsilon
         self.final_epsilon = final_epsilon
         self.gamma = gamma
         self.lr = lr
         self.batch_size = batch_size
-        self.update_freq = 1500
+        self.update_freq = 1000
         self.episodic_rewards = []
         self.mean_episodic_rewards = []
         self.losses = []
         self.episodic_losses = []
         self.iter_no = 0
+        self.start_training = 1000
 
 
     """
@@ -123,7 +120,7 @@ class DQNAgent:
         if np.random.rand() < self.epsilon:
             action = random.choice(self.action_space)
         else:
-            state = torch.from_numpy(np.asarray(state)).unsqueeze(0).cuda() # LazyFrame to torch tensor
+            state = torch.from_numpy(np.asarray(state) / 255.0).unsqueeze(0).type(torch.cuda.FloatTensor) # LazyFrame to torch tensor
             action = torch.argmax(self.dqn(state)).cpu().item()
         
         return action
@@ -136,7 +133,6 @@ class DQNAgent:
             "Learning rate": self.lr,
             "Episodes": self.episodes,
             "Batch size": self.batch_size,
-            "Timesteps": self.time_steps,
             "Update freq.": self.update_freq,
             "Replay memory size": self.memory_size,
             "Gamma": self.gamma
@@ -153,9 +149,11 @@ class DQNAgent:
         for i_episode in tqdm(range(self.episodes)):
             self.total_reward = 0
             # Initialize sequence s_1 = {x1} and preprocessed sequence phi_1 = phi(s_1)
+            done = False
             state = env.reset()
 
-            for t in range(self.time_steps):
+            while not done:
+                
                 # With probability E select a random action a_t
                 # otherwise select a_t = argmax_Q(phi(s_t), a; theta)
                 action = self.policy(state)
@@ -180,21 +178,19 @@ class DQNAgent:
                 self.iter_no += 1
 
                 """
-                Training of DQN when enough samples in memory (~50000 frames ==> 50000 / 4 = 12500 ==> 1250 in our smaller case)
+                Training of DQN when enough samples in memory
                 """
-                if self.iter_no >= 1250:
+                if self.iter_no >= self.start_training:
 
-                    # The behaviour policy during training was e-greedy with e annealed linearly from 1.0 to 0.1 over the first million frames, 
-                    # and fixed at 0.1 thereafter
-                    # NOTE: Here we are not doing million frames but a porportion of it 4500
+                    # Epsilon decay
                     if self.epsilon > 0.05:
-                        self.epsilon = self.epsilon - (0.95 / 6500)
+                        self.epsilon = self.epsilon - (0.95 / self.decay_over_frames)
 
                     # Sample random minibatch of transitions (phi_j, a_j, r_j, phi_j+1) from D
                     state_batch, action_batch, reward_batch, next_state_batch, done_batch = self.replay_memory.sample(self.batch_size)
                     
-                    next_state_batch = torch.from_numpy(next_state_batch).type(torch.cuda.FloatTensor) # NumPy array to torch tensor for NN
-                    state_batch = torch.from_numpy(state_batch).type(torch.cuda.FloatTensor)# NumPy array to torch tensor for NN
+                    next_state_batch = torch.from_numpy(next_state_batch / 255.0).type(torch.cuda.FloatTensor)  # NumPy array to torch tensor for NN
+                    state_batch = torch.from_numpy(state_batch / 255.0).type(torch.cuda.FloatTensor) # NumPy array to torch tensor for NN
                     reward_batch = torch.from_numpy(reward_batch).cuda() # NumPy array to torch tensor for NN and for gpu
                     action_batch = torch.from_numpy(action_batch).long().cuda() # NumPy array to torch tensor for NN and for gpu.
                     done_batch = torch.from_numpy(done_batch).cuda() # NumPy array to torch tensor for NN and for gpu
@@ -203,6 +199,7 @@ class DQNAgent:
                     current_q = self.dqn(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(1)
                     # Set y_j = r_j                                             if episode terminates at step j + 1 NOTE: we can check this with (not) done mask
                     #     y_j = r_j + gamma * max_a' Q_hat(phi_j+1,a'; theta⁻)  otherwise
+                    # The not done mask works like this: When the j + 1 is done, the done will be 1 ==> 1 - 1 = 0 ==> reward_batch + 0
                     target_max_q = self.target_dqn(next_state_batch).detach().max(1)[0]
                     target = reward_batch + target_max_q * self.gamma * (1 - done_batch) 
 
@@ -215,36 +212,27 @@ class DQNAgent:
                     # Clip loss between [-1,1], we can use torch.clamp on torch tensors
                     loss = loss.clamp(-1,1)
 
-                    # Add loss to array of losses. NOTE: loss is a tensor
-                    #self.losses.append(loss) # Loss is very low, but reward increases
-
                     # Standard PyTorch update
                     self.optimizer.zero_grad()
-                    # self.losses.append(loss) NOT WORKING HERE
                     loss.backward()
-                   #  self.losses.append(loss) NOT WORKING HERE
                     self.optimizer.step()
-
-                    #self.losses.append(loss) NOT WORKING HERE
-
-                    # Every C steps reset Q_theta = Q
-                    if i_episode % self.update_freq == 0 and t == 0:
-                        print("Target network updated!")
-                        self.target_dqn.load_state_dict(self.dqn.state_dict())
                     
                 if done:
                     self.episodic_rewards.append(self.total_reward)
                     break
+
+            # Every C steps reset Q_theta = Q
+            if i_episode % self.update_freq == 0: #and self.iter_no >= self.start_training:#and t == 0:
+                print("Target network updated!")
+                self.target_dqn.load_state_dict(self.dqn.state_dict())
             
-            if i_episode % 100 == 0 and self.iter_no  > 1250:
+            if i_episode % 100 == 0 and self.iter_no  > self.start_training:
                 print("Episode: {}".format(i_episode))
                 print("Total Mean Episodic reward: {0:.4f}".format(sum(self.episodic_rewards) / len(self.episodic_rewards)))
                 print("Total MSE: {0:.4f}".format(torch.mean(torch.stack(self.losses), dim=0)))
-                # sum(self.losses) / len(self.losses)
                 self.mean_episodic_rewards.append(sum(self.episodic_rewards) / len(self.episodic_rewards))
                 self.episodic_losses.append(torch.mean(torch.stack(self.losses), dim=0))
-                #self.episodic_losses.append(sum(self.losses) / len(self.losses))
-            elif i_episode % 100 == 0 and self.iter_no <= 1250:
+            elif i_episode % 100 == 0 and self.iter_no <= self.start_training:
                 print("Episode: {}".format(i_episode))
 
         

@@ -24,9 +24,8 @@ import numpy as np
 
 def preprocess_frame(img, width, height, inter = cv2.INTER_AREA):
     img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    img = cv2.resize(img, (width, height), interpolation=inter).astype(np.float32)
-    img /= 255.0 # normalize to range [0,1]
-
+    img = cv2.resize(img, (width, height), interpolation=inter)
+    
     return img
 
 
