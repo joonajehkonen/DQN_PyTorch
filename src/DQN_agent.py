@@ -77,8 +77,7 @@ class DQNAgent:
         
         # NOTE: This is done on training loop when episode is 0 ==> Initialize target action-value function Q^ with weights h⁻ = h
 
-        # Paper uses RMSprop, we use PyTorch implementation of it
-        # NOTE: RMSprop on Atari Pong and Adam on CartPole
+        # NOTE: RMSprop for Atari Pong and Adam for CartPole
         if (env_name == 'CartPole-v1'):
             self.optimizer = torch.optim.Adam(params=self.dqn.parameters(), lr=lr)
             self.decay_over_frames = 6500
@@ -107,7 +106,6 @@ class DQNAgent:
         self.mean_episodic_rewards = []
         self.losses = []
         self.episodic_losses = []
-        self.iter_no = 0
         self.start_training = 1000
 
 
@@ -145,6 +143,7 @@ class DQNAgent:
             save_code=True
         )
         
+        iter_no = 0
     
         for i_episode in tqdm(range(self.episodes)):
             self.total_reward = 0
@@ -175,12 +174,12 @@ class DQNAgent:
                 
                 # Save current state for next iteration
                 state = next_state
-                self.iter_no += 1
+                iter_no += 1
 
                 """
                 Training of DQN when enough samples in memory
                 """
-                if self.iter_no >= self.start_training:
+                if iter_no >= self.start_training:
 
                     # Epsilon decay
                     if self.epsilon > 0.05:
@@ -222,17 +221,17 @@ class DQNAgent:
                     break
 
             # Every C steps reset Q_theta = Q
-            if i_episode % self.update_freq == 0: #and self.iter_no >= self.start_training:#and t == 0:
+            if i_episode % self.update_freq == 0:
                 print("Target network updated!")
                 self.target_dqn.load_state_dict(self.dqn.state_dict())
             
-            if i_episode % 100 == 0 and self.iter_no  > self.start_training:
+            if i_episode % 100 == 0 and iter_no  > self.start_training:
                 print("Episode: {}".format(i_episode))
                 print("Total Mean Episodic reward: {0:.4f}".format(sum(self.episodic_rewards) / len(self.episodic_rewards)))
                 print("Total MSE: {0:.4f}".format(torch.mean(torch.stack(self.losses), dim=0)))
                 self.mean_episodic_rewards.append(sum(self.episodic_rewards) / len(self.episodic_rewards))
                 self.episodic_losses.append(torch.mean(torch.stack(self.losses), dim=0))
-            elif i_episode % 100 == 0 and self.iter_no <= self.start_training:
+            elif i_episode % 100 == 0 and iter_no <= self.start_training:
                 print("Episode: {}".format(i_episode))
 
         
@@ -260,6 +259,42 @@ class DQNAgent:
         run.finish()
                 
             
-    def evaluate():
-        pass
+    """
+    Same structure as in training, but no model training part.
+    """
+    def evaluate(self, env, run_episodes, model_path, record_path):
+
+        self.epsilon = -1 # No random actions on evaluation
+        trained_model = torch.load(model_path)
+        self.dqn = torch.load_state_dict(trained_model)
+
+        for i_episode in tqdm(range(run_episodes)):
+            self.total_reward = 0
+            iter_no = 0
+            # Initialize sequence s_1 = {x1} and preprocessed sequence phi_1 = phi(s_1)
+            done = False
+            state = env.reset()
+
+            while not done:
+                
+                # With probability E select a random action a_t
+                # otherwise select a_t = argmax_Q(phi(s_t), a; theta)
+                action = self.policy(state)
+
+                # Execute action a_t in emulator and observe reward r_t and image x_t+1
+                # Set s_t+1 = s_t, a_t, x_t+1 and preprocess phi_t+1 = phi(s_t+1)
+                next_state, reward, done, _ = env.step(action)
+                
+                # Clip reward between [-1, 1], not using torch clamp for np arrays
+                self.total_reward += reward
+                
+                # Save current state for next iteration
+                state = next_state
+                iter_no += 1
+                    
+                if done:
+                    self.episodic_rewards.append(self.total_reward)
+                    print('Episode: {}, steps: {}, reward: {} mean episodic reward: {}'.format(i_episode, iter_no, self.total_reward,
+                        self.episodic_rewards / i_episode))
+                    break
     

@@ -46,12 +46,15 @@ else:
 n_actions = env.action_space.n
 TRAIN = True
 POLICY_NAME = '/media/data1/joojeh/DQN_PyTorch/policies/dqn_{}_{}_ep.pth'.format(ENV_NAME, EPISODES)
+MODEL_PATH = '/media/data1/joojeh/DQN_PyTorch/policies/dqn_cartpole_adam_25000ep.pth'
+RECORD_PATH = '/media/data1/joojeh/DQN_PyTorch/recordings'
 
 dqn_agent = DQNAgent(EPISODES, n_actions, (4, 84, 84), POLICY_NAME, ENV_NAME)
 
 if TRAIN:
     dqn_agent.train(env)
 else:
-    dqn_agent.evaluate()
+    env = wrappers.RecordVideo(env, video_folder=RECORD_PATH , name_prefix='dqn_cartpole_adam_25000ep')
+    dqn_agent.evaluate(env, 5,  MODEL_PATH)
 
 env.close()
