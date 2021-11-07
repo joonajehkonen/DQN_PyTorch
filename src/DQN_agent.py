@@ -265,8 +265,7 @@ class DQNAgent:
     def evaluate(self, env, run_episodes, model_path, record_path):
 
         self.epsilon = -1 # No random actions on evaluation
-        trained_model = torch.load(model_path)
-        self.dqn = torch.load_state_dict(trained_model)
+        self.dqn.load_state_dict(torch.load(model_path)) # Load trained model
 
         for i_episode in tqdm(range(run_episodes)):
             self.total_reward = 0
@@ -295,6 +294,6 @@ class DQNAgent:
                 if done:
                     self.episodic_rewards.append(self.total_reward)
                     print('Episode: {}, steps: {}, reward: {} mean episodic reward: {}'.format(i_episode, iter_no, self.total_reward,
-                        self.episodic_rewards / i_episode))
+                        sum(self.episodic_rewards) / len(self.episodic_rewards)))
                     break
     

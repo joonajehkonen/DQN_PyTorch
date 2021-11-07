@@ -39,22 +39,20 @@ else:
     )
     env = wrappers.FrameStack(env, 4)
 
-# For saving the video no render
-#env = wrappers.Monitor(env, video_callable=False ,force=True)
 
 # Get current env action space size (number of actions)
 n_actions = env.action_space.n
 TRAIN = True
 POLICY_NAME = '/media/data1/joojeh/DQN_PyTorch/policies/dqn_{}_{}_ep.pth'.format(ENV_NAME, EPISODES)
 MODEL_PATH = '/media/data1/joojeh/DQN_PyTorch/policies/dqn_cartpole_adam_25000ep.pth'
-RECORD_PATH = '/media/data1/joojeh/DQN_PyTorch/recordings'
+RECORD_PATH = '/media/data1/joojeh/DQN_PyTorch/recordings/dqn_cartpole_adam_25000ep'
 
 dqn_agent = DQNAgent(EPISODES, n_actions, (4, 84, 84), POLICY_NAME, ENV_NAME)
 
 if TRAIN:
     dqn_agent.train(env)
 else:
-    env = wrappers.RecordVideo(env, video_folder=RECORD_PATH , name_prefix='dqn_cartpole_adam_25000ep')
+    env = wrappers.Monitor(env, directory=RECORD_PATH, force=True)
     dqn_agent.evaluate(env, 5,  MODEL_PATH)
 
 env.close()
